@@ -1,4 +1,4 @@
-# animal-sounds-online  
+# smart-range-audio-online 
 
 This project demonstrates how audio files can be intelligently segmented and delivered for online playback. By applying smart slicing techniques, longer recordings are broken down into meaningful parts, making them easier to manage and stream.  
 
@@ -20,5 +20,6 @@ The code here can serve as a reference for anyone interested in:
 
 ### 🌍 Example
 A live example and related experiments are shared [Animal Sounds](https://animalsounds.online/).  
+Through intelligent sharding technology, high-quality and realistic animal sounds can be played online.
 
 ---
