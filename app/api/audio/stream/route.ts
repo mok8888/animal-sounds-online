@@ -6,48 +6,7 @@ import { animalSounds } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
 import 'dotenv/config';
 
-// 速率限制映射（简单内存存储，生产环境建议使用Redis）
-const rateLimitMap = new Map<string, { count: number; resetTime: number }>();
-
-// 清理过期的速率限制记录
-function cleanupRateLimit() {
-    const now = Date.now();
-    for (const [key, value] of rateLimitMap.entries()) {
-        if (now > value.resetTime) {
-            rateLimitMap.delete(key);
-        }
-    }
-}
-
-// 检查速率限制
-function checkRateLimit(identifier: string): boolean {
-    cleanupRateLimit();
-
-    const now = Date.now();
-    const windowMs = 60 * 1000; // 1分钟窗口
-    const maxRequests = 30; // 每分钟最多30次请求
-
-    const current = rateLimitMap.get(identifier);
-
-    if (!current) {
-        rateLimitMap.set(identifier, { count: 1, resetTime: now + windowMs });
-        return true;
-    }
-
-    if (now > current.resetTime) {
-        rateLimitMap.set(identifier, { count: 1, resetTime: now + windowMs });
-        return true;
-    }
-
-    if (current.count >= maxRequests) {
-        return false;
-    }
-
-    current.count++;
-    return true;
-}
-
-// 解析Range头部
+// Parsing the Range header
 function parseRange(range: string, fileSize: number): { start: number; end: number } | null {
     const match = range.match(/bytes=(\d*)-(\d*)/);
     if (!match) return null;
@@ -62,10 +21,10 @@ function parseRange(range: string, fileSize: number): { start: number; end: numb
     return { start, end };
 }
 
-// 智能Range优化：为首次请求或小请求提供优化的范围
+// Smart Range Optimization: Provides an optimized range for first requests or small requests
 function optimizeRange(requestedRange: { start: number; end: number }, fileSize: number, isFirstRequest: boolean): { start: number; end: number } {
     if (isFirstRequest && requestedRange.start === 0) {
-        // 首次请求：根据文件大小优化初始块大小
+        // First request: Optimize initial chunk size based on file size
         let initialPlaybackSize: number;
 
         if (fileSize < 5 * 1024 * 1024) { // < 5MB
@@ -82,7 +41,7 @@ function optimizeRange(requestedRange: { start: number; end: number }, fileSize:
         };
     }
 
-    // 根据文件大小调整块大小
+    // Adjust block size based on file size
     const requestedSize = requestedRange.end - requestedRange.start + 1;
     let optimalChunkSize: number;
 
@@ -94,7 +53,7 @@ function optimizeRange(requestedRange: { start: number; end: number }, fileSize:
         optimalChunkSize = 1536 * 1024; // 1.5MB
     }
 
-    // 如果请求的块太小，扩展到优化大小
+    // If the requested block is too small, expand to the optimal size
     if (requestedSize < optimalChunkSize && requestedRange.end < fileSize - 1) {
         const newEnd = Math.min(requestedRange.start + optimalChunkSize - 1, fileSize - 1);
         return {
@@ -115,7 +74,7 @@ export async function GET(request: NextRequest) {
         const expires = searchParams.get('expires');
         console.log('audio stream fileName', fileName);
 
-        // 基础参数验证
+        // Basic parameter verification
         if (!fileName) {
             return NextResponse.json(
                 { error: 'Missing file parameter' },
@@ -124,7 +83,7 @@ export async function GET(request: NextRequest) {
         }
 
 
-        // 先获取文件元数据来确定文件大小
+        // First get the file metadata to determine the file size
         const fileMetadata = await audioStorage.getfileMediaInfo(fileName);
         if (!fileMetadata?.ContentLength) {
             return NextResponse.json(
@@ -141,8 +100,7 @@ export async function GET(request: NextRequest) {
         let isFirstRequest = false;
         console.log('audio stream range', range);
         if (range) {
-
-            // 解析Range请求
+            // Parsing Range Requests
             const parsedRange = parseRange(range, fileSize);
             console.log('audio stream parsedRange', parsedRange);
             if (!parsedRange) {
@@ -154,14 +112,14 @@ export async function GET(request: NextRequest) {
             isPartialContent = true;
             isFirstRequest = start === 0;
 
-            // 应用智能分块优化
+            // Apply intelligent block optimization
             const optimizedRange = optimizeRange({ start, end }, fileSize, isFirstRequest);
             start = optimizedRange.start;
             end = optimizedRange.end;
 
             console.log(`Optimized range: ${start}-${end} (original: ${parsedRange.start}-${parsedRange.end})`);
         } else {
-            // 没有Range头的首次请求，使用智能初始块策略
+            // For the first request without a Range header, use the smart initial block strategy.
             isFirstRequest = true;
             const optimizedRange = optimizeRange({ start: 0, end: fileSize - 1 }, fileSize, true);
             start = optimizedRange.start;
@@ -171,7 +129,7 @@ export async function GET(request: NextRequest) {
             console.log(`First request optimized to: ${start}-${end} of ${fileSize}`);
         }
 
-        // 使用Range参数获取文件片段
+        // Use the Range parameter to get a file segment
         const response = await audioStorage.getFileRange(fileName, start, end);
 
         if (!response?.Body) {
@@ -185,7 +143,7 @@ export async function GET(request: NextRequest) {
         const contentRange = `bytes ${start}-${end}/${fileSize}`;
         console.log('audio stream contentRange', contentRange);
 
-        // 确定音频内容类型
+        // Determine the audio content type
         let contentType = response.ContentType || 'audio/mpeg';
         const ext = fileName.split('.').pop()?.toLowerCase();
         const mimeTypes: Record<string, string> = {
@@ -199,20 +157,20 @@ export async function GET(request: NextRequest) {
             contentType = mimeTypes[ext];
         }
 
-        // 根据文件大小和请求类型优化缓存策略
+        // Optimize caching strategy based on file size and request type
         let cacheControl: string;
         if (isFirstRequest && fileSize > 10 * 1024 * 1024) {
-            // 大文件的首次请求块，较短缓存时间以支持快速更新
+            // First request chunks for large files, with shorter cache times to support fast updates
             cacheControl = 'public, max-age=7200, stale-while-revalidate=3600';
         } else if (isPartialContent) {
-            // 部分内容请求，长时间缓存
+            // Partial content request, long-term cache
             cacheControl = 'public, max-age=31536000, immutable';
         } else {
-            // 小文件完整请求
+            // Small file complete request
             cacheControl = 'public, max-age=86400, stale-while-revalidate=3600';
         }
 
-        // 构建响应头
+        // Constructing the response header
         const headers: Record<string, string> = {
             'Content-Type': contentType,
             'Content-Length': contentLength.toString(),
@@ -225,7 +183,7 @@ export async function GET(request: NextRequest) {
             'Content-Disposition': 'inline',
         };
 
-        // 添加预取提示头部，帮助客户端预加载下一块
+        // Add a prefetch hint header to help the client preload the next block
         if (isPartialContent && end < fileSize - 1) {
             const nextChunkStart = end + 1;
             const nextChunkEnd = Math.min(nextChunkStart + contentLength - 1, fileSize - 1);
@@ -252,7 +210,7 @@ export async function GET(request: NextRequest) {
     }
 }
 
-// 支持CORS预检请求
+// Support CORS preflight requests
 export async function OPTIONS(request: NextRequest) {
     return new NextResponse(null, {
         status: 200,
