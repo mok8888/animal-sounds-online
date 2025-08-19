@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { audioStorage } from '@/services/audio-storage';
+import { audioStorageR2 } from '@/services/audio-storage';
 import { getURL } from '@/utils/helper';
 import { eq } from 'drizzle-orm';
 import 'dotenv/config';
@@ -82,7 +82,7 @@ export async function GET(request: NextRequest) {
 
 
         // First get the file metadata to determine the file size
-        const fileMetadata = await audioStorage.getfileMediaInfo(fileName);
+        const fileMetadata = await audioStorageR2.getfileMediaInfo(fileName);
         if (!fileMetadata?.ContentLength) {
             return NextResponse.json(
                 { error: 'Unable to determine file size' },
@@ -128,7 +128,7 @@ export async function GET(request: NextRequest) {
         }
 
         // Use the Range parameter to get a file segment
-        const response = await audioStorage.getFileRange(fileName, start, end);
+        const response = await audioStorageR2.getFileRange(fileName, start, end);
 
         if (!response?.Body) {
             return NextResponse.json(
