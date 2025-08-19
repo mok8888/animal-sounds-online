@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { audioStorage } from '@/services/audio-storage';
 import { getURL } from '@/utils/helper';
-import { db } from '@/lib/db/connection';
-import { animalSounds } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
 import 'dotenv/config';
 
